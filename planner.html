@@ -174,6 +174,7 @@ dialog::backdrop{background:rgba(20,17,13,.45)}
       <h1>Kitchen planner<small id="syncInfo">Loading</small></h1>
       <div class="acts">
         <button class="btn" type="button" id="refreshBtn" aria-label="Refresh"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="lbl">Refresh</span></button>
+        <button class="btn" type="button" id="csvBtn" aria-label="Download all requests"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="lbl">Download</span></button>
         <button class="btn primary" type="button" id="addBtn" aria-label="Add booking"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Add booking</span></button>
         <button class="btn" type="button" id="lockBtn" aria-label="Lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span class="lbl">Lock</span></button>
       </div>
@@ -284,7 +285,7 @@ function open(p){
   pin=p;$("loginBtn").disabled=true;$("loginErr").textContent="";
   api("list").then(function(r){
     $("loginBtn").disabled=false;
-    if(!r||!r.ok){$("loginErr").textContent=r&&r.error==="pin"?"That PIN isn't right.":"Couldn't connect. Check the setup and your internet.";pin=null;return}
+    if(!r||!r.ok){$("loginErr").textContent=r&&r.error==="pin"?"That PIN isn't right.":(r&&r.error==="no_db"?"The planner server isn't connected to its database yet.":"Couldn't connect. Check your internet and try again.");pin=null;return}
     try{sessionStorage.setItem("skPlannerPin",p)}catch(e){}
     items=r.items||[];$("loginView").hidden=true;$("app").hidden=false;
     $("syncInfo").textContent="Updated "+new Date().toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});render();
@@ -378,7 +379,6 @@ function openConfirm(r){
   b.appendChild(warn);
   b.appendChild(inputF("Mentor",mentor));
   b.appendChild(inputF("Team notes",notes));
-  if(r.email)b.appendChild(el("label",{cls:"chk"},[em,"Email the confirmation to "+r.email]));
   function check(){var c=date.value&&clashIn(items,{id:r.id,date:date.value,slot:slot.value});warn.hidden=!c;warn.textContent=c?"This slot is already booked by another founder. Choose another slot, or save anyway to double-book.":""}
   date.addEventListener("change",check);slot.addEventListener("change",check);check();
   dfields={date:date,slot:slot,mentor:mentor,notes:notes,em:em,warn:warn};
@@ -480,6 +480,14 @@ $("search").addEventListener("input",function(){q=this.value.trim().toLowerCase(
 $("refreshBtn").addEventListener("click",function(){load().then(function(){toast("Up to date")})});
 $("addBtn").addEventListener("click",function(){openAdd(tab==="calendar"?cSel:"","s1")});
 $("lockBtn").addEventListener("click",function(){lock("")});
+$("csvBtn").addEventListener("click",function(){
+  var cols=[["id","Request"],["created","Received"],["status","Status"],["name","Name"],["phone","Phone"],["email","Email"],["city","City"],["dish","Dish"],["category","Category"],["prefDate","Preferred date"],["prefSlot","Preferred slot"],["date","Booked date"],["slot","Booked slot"],["mentor","Mentor"],["help","Help needed"],["equipment","Equipment"],["notes","About product"],["teamNotes","Team notes"],["source","Source"]];
+  function cell(k,r){var v=r[k]||"";if(k==="prefSlot"||k==="slot")v=slotTxt(v);if(k==="created")v=v?new Date(v).toLocaleString("en-IN"):"";v=String(v);if(/^[=+\-@]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'}
+  var lines=[cols.map(function(c){return '"'+c[1]+'"'}).join(",")].concat(items.map(function(r){return cols.map(function(c){return cell(c[0],r)}).join(",")}));
+  var blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="startup-kitchen-requests-"+TODAY+".csv";document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
+  toast("Downloaded "+items.length+" requests");
+});
 if(PREVIEW){$("previewNote").hidden=false;$("loginPrev").hidden=false}
 var saved=null;try{saved=sessionStorage.getItem("skPlannerPin")}catch(e){}
 if(saved)open(saved);else setTimeout(function(){$("pin").focus()},50);
