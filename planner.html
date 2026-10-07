@@ -285,7 +285,7 @@ function open(p){
   pin=p;$("loginBtn").disabled=true;$("loginErr").textContent="";
   api("list").then(function(r){
     $("loginBtn").disabled=false;
-    if(!r||!r.ok){$("loginErr").textContent=r&&r.error==="pin"?"That PIN isn't right.":(r&&r.error==="no_db"?"The planner server isn't connected to its database yet.":"Couldn't connect. Check your internet and try again.");pin=null;return}
+    if(!r||!r.ok){$("loginErr").textContent=r&&r.error==="pin"?"That PIN isn't right.":(r&&r.error==="busy"?"The planner is busy. Try again in a moment.":"Couldn't connect. Check your internet and try again.");pin=null;return}
     try{sessionStorage.setItem("skPlannerPin",p)}catch(e){}
     items=r.items||[];$("loginView").hidden=true;$("app").hidden=false;
     $("syncInfo").textContent="Updated "+new Date().toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});render();
