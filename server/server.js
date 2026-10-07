@@ -22,7 +22,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 let pool = null;
 let ready = null;
-function db() {
+async function db() {
   if (!process.env.DATABASE_URL) throw Object.assign(new Error('DATABASE_URL is not set'), { code: 'no_db' });
   if (!pool) {
     const url = process.env.DATABASE_URL;
