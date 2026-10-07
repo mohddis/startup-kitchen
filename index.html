@@ -658,7 +658,7 @@ function renderBPanel(){
       bBusy=false;
       if(r&&r.ok){bDone={id:r.id,date:payload.prefDate,slot:payload.prefSlot,name:payload.name,phone:payload.phone,dish:payload.dish,category:payload.category};form.dish="";form.notes="";bSel=null;bSlot=null;renderBCal();renderBPanel();$("bPanel").scrollIntoView({behavior:"smooth",block:"start"});return}
       go.disabled=false;go.textContent="Send request";
-      err.textContent=(r&&r.error==="invalid")?"Some details are missing. Check your name, phone and date.":"Couldn't send your request. Please try again, or call 91333 08097.";
+      err.textContent=(r&&r.error==="invalid")?"Some details are missing. Check your name, phone and date.":(r&&r.error==="busy")?"Too many requests from this connection. Please call 91333 08097.":"Couldn't send your request. Please try again, or call 91333 08097.";
     }).catch(function(){bBusy=false;go.disabled=false;go.textContent="Send request";err.textContent="Couldn't connect. Check your internet and try again, or call 91333 08097."});
   });
   p.appendChild(f);
