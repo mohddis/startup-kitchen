@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /planner.html
+Disallow: /apps-script/
+
+Sitemap: https://startupkitchenbypistahouse.com/sitemap.xml
