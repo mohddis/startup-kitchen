@@ -25,7 +25,8 @@ Google Sheet. The team PIN and the alert email are in its **Settings** tab.
    paste everything from `apps-script/Code.gs`, and press **Ctrl + S**.
 3. In the function list at the top, choose **setup** and click **Run**. Allow the
    permissions Google asks for. The sheet now has **Requests** and **Settings** tabs.
-4. In the **Settings** tab, type the team PIN in cell **B2**. Optionally type an
+4. In the **Settings** tab, type the team PIN in cell **B2**. Use at least 8
+   characters, mixing letters and numbers (for example `Kitchen#2026`). Optionally type an
    email in **B3** to get an alert for every new request.
 5. Back in Apps Script, click **Deploy > New deployment**. Click the gear icon and
    choose **Web app**. Set **Execute as: Me** and **Who has access: Anyone**, then
@@ -50,3 +51,16 @@ so the URL stays the same.
 5. After the slot: **Mark done** or **No show**. Phone bookings: **Add booking**.
 6. **Download** saves every request as a spreadsheet file. You can also open the
    Google Sheet directly to see every request.
+
+## Keeping it safe
+
+- **Team PIN:** use 8 or more characters. A short PIN is locked for 15 minutes
+  after 30 wrong tries, so it can't be guessed. A strong PIN is never locked,
+  so nobody can lock the team out by typing wrong PINs.
+- **The Google Sheet:** keep it shared only with people on the team. Anyone who
+  can open the sheet can see every founder's phone number and the team PIN.
+- **After changing `Code.gs`:** paste it into Apps Script again, then use Deploy >
+  Manage deployments > Edit (pencil) > Version: New version > Deploy. The website
+  keeps working with the old version until you do.
+- **Nothing secret lives on GitHub.** The Web app URL in `assets/config.js` is
+  meant to be public. The PIN and alert email stay in the sheet.

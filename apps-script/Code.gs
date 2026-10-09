@@ -21,6 +21,9 @@ var KITCHEN_PHONE = '+91 91333 08097';
 var SLOTS = { s1: 'Morning, 7:00 to 11:00', s2: 'Midday, 11:30 to 3:30', s3: 'Evening, 4:00 to 8:00' };
 var STATUSES = ['New', 'Contacted', 'Confirmed', 'Done', 'Declined', 'Cancelled', 'No show'];
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+var TZ = 'Asia/Kolkata';
+var MAX_DAYS_AHEAD = 90; // the website offers 60 days; a little slack for slow confirmations
+var STRONG_PIN = 8;      // PINs this long are too slow to guess, so a lockout never blocks them
 
 var COLS = ['id', 'created', 'status', 'name', 'phone', 'email', 'city', 'dish', 'category', 'prefDate', 'prefSlot',
   'help', 'equipment', 'notes', 'date', 'slot', 'mentor', 'teamNotes', 'source', 'updated'];
@@ -34,7 +37,7 @@ var EDITABLE = ['status', 'date', 'slot', 'mentor', 'teamNotes', 'name', 'phone'
 function setup() {
   sheet_();
   settings_();
-  Logger.log('Setup done. Now type the team PIN in Settings!B2, then Deploy > New deployment > Web app.');
+  Logger.log('Setup done. Now type the team PIN in Settings!B2 (at least ' + STRONG_PIN + ' characters), then Deploy > New deployment > Web app.');
 }
 
 function doGet() {
@@ -83,9 +86,16 @@ function newRequest_(p) {
   cache.put('req_count', String(n + 1), 600);
 
   var name = clean_(p.name, 120), phone = clean_(p.phone, 30);
-  if (!name || digits_(phone).length < 10 || !DATE_RE.test(p.prefDate || '') || !SLOTS[p.prefSlot]) {
+  if (!name || digits_(phone).length < 10 || digits_(phone).length > 15 || !dateOk_(p.prefDate) || !SLOTS[p.prefSlot]) {
     return { ok: false, error: 'invalid' };
   }
+  // one phone number can send at most 3 requests an hour, so one person can't flood the sheet
+  var phoneKey = 'ph_' + digits_(phone).slice(-10);
+  var byPhone = Number(cache.get(phoneKey) || 0);
+  if (byPhone >= 3) return { ok: false, error: 'busy' };
+  cache.put(phoneKey, String(byPhone + 1), 3600);
+  // the website hides booked slots, but check here too in case someone posts directly
+  if (clash_(rows_(), { id: '', date: p.prefDate, slot: p.prefSlot })) return { ok: false, error: 'taken' };
   var now = new Date().toISOString();
   var rec = {
     id: nextId_(), created: now, status: 'New', name: name, phone: phone, email: clean_(p.email, 120),
@@ -222,8 +232,10 @@ function pinOk_(pin) {
   if (!real) return false;
   var cache = CacheService.getScriptCache();
   var fails = Number(cache.get('pin_fails') || 0);
-  if (fails >= 30) return false; // too many wrong PINs: wait 15 minutes
-  if (String(pin || '') === real) return true;
+  // After 30 wrong PINs, short PINs are locked for 15 minutes so they can't be guessed.
+  // A strong PIN is never locked, so a stranger typing wrong PINs can't lock the team out.
+  if (fails >= 30 && real.length < STRONG_PIN) return false;
+  if (sameText_(String(pin || ''), real)) return true;
   cache.put('pin_fails', String(fails + 1), 900);
   Utilities.sleep(800);
   return false;
@@ -282,6 +294,23 @@ function clean_(v, max) {
   return String(v == null ? '' : v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, max || 200);
 }
 function digits_(v) { return String(v || '').replace(/\D/g, ''); }
+function todayKey_(offsetDays) {
+  return Utilities.formatDate(new Date(Date.now() + (offsetDays || 0) * 86400000), TZ, 'yyyy-MM-dd');
+}
+function dateOk_(s) { // a real date, from today (India time) up to MAX_DAYS_AHEAD days ahead
+  s = String(s || '');
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  var d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) return false; // e.g. 2026-02-30
+  return s >= todayKey_(0) && s <= todayKey_(MAX_DAYS_AHEAD);
+}
+function sameText_(a, b) { // compares every character, so timing doesn't reveal how much of the PIN was right
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 function esc_(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
