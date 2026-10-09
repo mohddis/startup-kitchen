@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="no-referrer">
+<style>html.framed body{display:none}</style>
+<script>if(window.top!==window.self){document.documentElement.className+=" framed";try{window.top.location=window.location.href}catch(e){}}</script>
 <meta name="robots" content="noindex, nofollow">
 <title>Kitchen planner · The Startup Kitchen</title>
 <link rel="icon" href="/favicon.ico?v=2" sizes="any">
@@ -419,12 +423,15 @@ function render(){
 function hello(nNew){
   var h=new Date().getHours(),g=h<12?"Good morning":h<17?"Good afternoon":"Good evening";
   $("helloDate").textContent=new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
-  $("helloTitle").innerHTML=g+", <i>team</i>";
+  var ht=$("helloTitle");ht.textContent=g+", ";ht.appendChild(el("i",{text:"team"}));
   var today=items.filter(function(r){return r.status==="Confirmed"&&r.date===TODAY});
-  var bits=[];
-  bits.push(nNew?"<b>"+nNew+" new request"+(nNew>1?"s":"")+"</b> waiting for a call":"No new requests right now");
-  bits.push(today.length?"<b>"+today.length+" founder"+(today.length>1?"s":"")+" in the kitchen today</b>"+" ("+today.map(function(r){return r.name.split(" ")[0]+", "+(slotOf(r.slot)||{name:""}).name}).join("; ")+")":"the kitchen is free today");
-  $("helloText").innerHTML=bits.join(" · ")+".";
+  /* Founder names come from the public form, so build this with text nodes, never innerHTML. */
+  var parts=[];
+  parts.push(nNew?[el("b",{text:nNew+" new request"+(nNew>1?"s":"")})," waiting for a call"]:["No new requests right now"]);
+  parts.push(today.length?[el("b",{text:today.length+" founder"+(today.length>1?"s":"")+" in the kitchen today"})," ("+today.map(function(r){return String(r.name||"").split(" ")[0]+", "+(slotOf(r.slot)||{name:""}).name}).join("; ")+")"]:["the kitchen is free today"]);
+  var hx=$("helloText");hx.textContent="";
+  parts.forEach(function(seg,i){if(i)hx.appendChild(document.createTextNode(" · "));seg.forEach(function(c){hx.appendChild(typeof c==="string"?document.createTextNode(c):c)})});
+  hx.appendChild(document.createTextNode("."));
 }
 function card(r){
   var who=el("div",{cls:"who"},[el("h3",{text:r.name}),el("div",{cls:"meta",text:r.id+" · "+(r.source||"Website")+" · "+ago(r.created)}),el("a",{cls:"ph",href:"tel:"+digits(r.phone),text:r.phone}),r.city?el("div",{cls:"meta",text:r.city}):null,r.email?el("div",{cls:"meta",text:r.email}):null]);

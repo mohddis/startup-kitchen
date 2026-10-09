@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="canonical" href="https://startupkitchenbypistahouse.com/">
 <title>The Startup Kitchen by Pista House</title>
 <link rel="icon" href="/favicon.ico?v=2" sizes="any">
@@ -659,7 +661,8 @@ function renderBPanel(){
       bBusy=false;
       if(r&&r.ok){bDone={id:r.id,date:payload.prefDate,slot:payload.prefSlot,name:payload.name,phone:payload.phone,dish:payload.dish,category:payload.category};form.dish="";form.notes="";bSel=null;bSlot=null;renderBCal();renderBPanel();$("bPanel").scrollIntoView({behavior:"smooth",block:"start"});return}
       go.disabled=false;go.textContent="Send request";
-      err.textContent=(r&&r.error==="invalid")?"Some details are missing. Check your name, phone and date.":(r&&r.error==="busy")?"Too many requests from this connection. Please call 91333 08097.":"Couldn't send your request. Please try again, or call 91333 08097.";
+      err.textContent=(r&&r.error==="invalid")?"Some details are missing. Check your name, phone and date.":(r&&r.error==="taken")?"That slot was just booked. Please choose another slot.":(r&&r.error==="busy")?"We're getting a lot of requests right now. Please try again later, or call 91333 08097.":"Couldn't send your request. Please try again, or call 91333 08097.";
+      if(r&&r.error==="taken"){booked[payload.prefDate+"_"+payload.prefSlot]=true;bSlot=null;renderBCal();renderBPanel();toast("That slot was just booked. Please choose another slot.")}
     }).catch(function(){bBusy=false;go.disabled=false;go.textContent="Send request";err.textContent="Couldn't connect. Check your internet and try again, or call 91333 08097."});
   });
   p.appendChild(f);
