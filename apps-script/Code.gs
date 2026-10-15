@@ -24,12 +24,16 @@ var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 var TZ = 'Asia/Kolkata';
 var MAX_DAYS_AHEAD = 90; // the website offers 60 days; a little slack for slow confirmations
 var STRONG_PIN = 8;      // PINs this long are too slow to guess, so a lockout never blocks them
+var BACKUP_FOLDER = 'Startup Kitchen backups';
+var KEEP_DAILY = 30;     // daily backups kept
+var KEEP_MONTHLY = 12;   // first-of-month backups kept
 
 var COLS = ['id', 'created', 'status', 'name', 'phone', 'email', 'city', 'dish', 'category', 'prefDate', 'prefSlot',
-  'help', 'equipment', 'notes', 'date', 'slot', 'mentor', 'teamNotes', 'source', 'updated'];
+  'help', 'equipment', 'notes', 'date', 'slot', 'mentor', 'teamNotes', 'source', 'updated',
+  'confirmSentAt', 'confirmSentTo', 'confirmStatus'];
 var HEADERS = ['Request ID', 'Received', 'Status', 'Name', 'Phone', 'Email', 'City', 'Dish', 'Category', 'Preferred date',
   'Preferred slot', 'Help wanted', 'Equipment', 'Founder notes', 'Confirmed date', 'Confirmed slot', 'Mentor',
-  'Team notes', 'Source', 'Last updated'];
+  'Team notes', 'Source', 'Last updated', 'Confirmation sent at', 'Confirmation sent to', 'Confirmation email'];
 var EDITABLE = ['status', 'date', 'slot', 'mentor', 'teamNotes', 'name', 'phone', 'email', 'city', 'dish', 'category', 'notes'];
 
 /* ---------- entry points ---------- */
@@ -37,6 +41,7 @@ var EDITABLE = ['status', 'date', 'slot', 'mentor', 'teamNotes', 'name', 'phone'
 function setup() {
   sheet_();
   settings_();
+  installBackup();
   Logger.log('Setup done. Now type the team PIN in Settings!B2 (at least ' + STRONG_PIN + ' characters), then Deploy > New deployment > Web app.');
 }
 
@@ -49,12 +54,16 @@ function doPost(e) {
   try { p = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
   catch (err) { return out_({ ok: false, error: 'bad_request' }); }
 
+  var isPublic = p.action === 'availability' || p.action === 'request';
+  // check the PIN before taking the lock, so wrong-PIN attempts can't hold up founders' requests
+  try { if (!isPublic && !pinOk_(p.pin)) return out_({ ok: false, error: 'pin' }); }
+  catch (err) { console.error('pin', err && err.message); return out_({ ok: false, error: 'server' }); }
+
   var lock = LockService.getScriptLock();
   try { lock.waitLock(20000); } catch (err) { return out_({ ok: false, error: 'busy' }); }
   try {
     if (p.action === 'availability') return out_(availability_(p));
     if (p.action === 'request') return out_(newRequest_(p));
-    if (!pinOk_(p.pin)) return out_({ ok: false, error: 'pin' });
     if (p.action === 'list') return out_(list_());
     if (p.action === 'update') return out_(update_(p));
     if (p.action === 'add') return out_(add_(p));
@@ -129,11 +138,15 @@ function update_(p) {
     if (!p.force && clash_(all, rec)) return { ok: false, error: 'taken' };
   }
   rec.updated = new Date().toISOString();
-  write_(rec);
   var emailed = false;
   if (p.sendEmail && rec.status === 'Confirmed' && rec.email) {
+    // record every attempt, so the team can always see whether the founder was emailed
     try { sendConfirmation_(rec); emailed = true; } catch (err) { console.error('email', err && err.message); }
+    rec.confirmSentAt = new Date().toISOString();
+    rec.confirmSentTo = rec.email;
+    rec.confirmStatus = emailed ? 'Sent' : 'Failed';
   }
+  write_(rec);
   return { ok: true, item: strip_(rec), emailed: emailed };
 }
 
@@ -191,6 +204,72 @@ function notifyTeam_(r) {
   } catch (err) { /* never block a request because of email */ }
 }
 
+/* ---------- backups ---------- */
+
+/** Run once (setup does it for you): makes backup() run every night between 2 and 3 am. */
+function installBackup() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'backup') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('backup').timeBased().everyDays(1).atHour(2).inTimezone(TZ).create();
+}
+
+/** Saves a full copy of this Sheet in the Drive folder "Startup Kitchen backups", then deletes old copies. */
+function backup() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var folder = backupFolder_();
+  var name = 'Startup Kitchen backup ' + todayKey_(0);
+  var same = folder.getFilesByName(name);
+  while (same.hasNext()) same.next().setTrashed(true); // running twice in a day keeps only the newest
+  DriveApp.getFileById(ss.getId()).makeCopy(name, folder);
+  prune_(folder);
+}
+
+/**
+ * Restore test. Copies the Requests tab from the newest backup into a new tab here called
+ * "Restored YYYY-MM-DD" and logs whether it matches. Nothing in the live Requests tab is changed.
+ * To really restore, check the new tab, then copy its rows into Requests.
+ */
+function restoreLatestBackup() {
+  var files = backups_(backupFolder_());
+  if (!files.length) throw new Error('No backups yet. Run backup first.');
+  var latest = files[0];
+  var src = SpreadsheetApp.openById(latest.file.getId()).getSheetByName(SHEET);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tabName = 'Restored ' + latest.day;
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var copy = src.copyTo(ss).setName(tabName);
+  var restored = copy.getLastRow() - 1, live = sheet_().getLastRow() - 1;
+  Logger.log('Restored ' + restored + ' requests from ' + latest.file.getName() + ' into the tab "' + tabName +
+    '". The live sheet has ' + live + ' (it can be higher if requests came in since the backup).');
+  return { ok: true, restored: restored, live: live };
+}
+
+function backupFolder_() {
+  var it = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(BACKUP_FOLDER);
+}
+
+function backups_(folder) { // newest first
+  var list = [], it = folder.getFiles();
+  while (it.hasNext()) {
+    var f = it.next(), m = /^Startup Kitchen backup (\d{4}-\d{2}-\d{2})$/.exec(f.getName());
+    if (m) list.push({ file: f, day: m[1] });
+  }
+  list.sort(function (a, b) { return a.day < b.day ? 1 : a.day > b.day ? -1 : 0; });
+  return list;
+}
+
+function prune_(folder) { // keep the newest KEEP_DAILY copies, plus the 1st-of-month copies of the last KEEP_MONTHLY months
+  var months = 0;
+  backups_(folder).forEach(function (b, i) {
+    if (i < KEEP_DAILY) return;
+    if (b.day.slice(8) === '01' && months < KEEP_MONTHLY) { months += 1; return; }
+    b.file.setTrashed(true);
+  });
+}
+
 /* ---------- sheet helpers ---------- */
 
 function sheet_() {
@@ -201,6 +280,10 @@ function sheet_() {
     sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold').setBackground('#F4E6BE');
     sh.setFrozenRows(1);
     sh.getRange(2, 1, sh.getMaxRows() - 1, COLS.length).setNumberFormat('@');
+  }
+  if (sh.getMaxColumns() < COLS.length) sh.insertColumnsAfter(sh.getMaxColumns(), COLS.length - sh.getMaxColumns());
+  if (sh.getRange(1, COLS.length).getDisplayValue() !== HEADERS[HEADERS.length - 1]) { // add columns from newer versions
+    sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold').setBackground('#F4E6BE');
   }
   return sh;
 }
@@ -232,13 +315,29 @@ function pinOk_(pin) {
   if (!real) return false;
   var cache = CacheService.getScriptCache();
   var fails = Number(cache.get('pin_fails') || 0);
-  // After 30 wrong PINs, short PINs are locked for 15 minutes so they can't be guessed.
-  // A strong PIN is never locked, so a stranger typing wrong PINs can't lock the team out.
+  // After 30 wrong PINs in 15 minutes, short PINs are locked so they can't be guessed.
+  // A strong PIN is not locked (a stranger typing wrong PINs must not lock the team out),
+  // but every wrong try is slowed down more and more, and the team is emailed.
   if (fails >= 30 && real.length < STRONG_PIN) return false;
   if (sameText_(String(pin || ''), real)) return true;
-  cache.put('pin_fails', String(fails + 1), 900);
-  Utilities.sleep(800);
+  fails += 1;
+  cache.put('pin_fails', String(fails), 900);
+  if (fails === 30) alertPinAttack_();
+  Utilities.sleep(Math.min(800 * Math.pow(2, Math.floor(fails / 10)), 3000)); // 0.8 s, then 1.6 s, then 3 s
   return false;
+}
+
+function alertPinAttack_() {
+  var team = setting_('B3');
+  if (!team) return;
+  try {
+    MailApp.sendEmail({
+      to: team, name: 'The Startup Kitchen website',
+      subject: 'Warning: 30 wrong planner PINs in 15 minutes',
+      htmlBody: '<p>Someone typed 30 wrong team PINs in the last 15 minutes. If this was not your team, ' +
+        'change the PIN in the Settings tab (cell B2) to a new one of at least ' + STRONG_PIN + ' letters and numbers.</p>'
+    });
+  } catch (err) { /* email limits must never break the planner */ }
 }
 
 function rows_() {
